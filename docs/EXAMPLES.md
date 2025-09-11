@@ -11,8 +11,11 @@ This document provides practical examples of using Shimmy in various scenarios.
 export SHIMMY_BASE_GGUF=/path/to/model.gguf
 shimmy serve --bind 127.0.0.1:11435
 
-# Generate text via CLI
-shimmy generate --prompt "Write a haiku about programming" --max-tokens 50
+# Generate text via CLI using registered model name
+shimmy generate phi3-lora --prompt "Write a haiku about programming" --max-tokens 50
+
+# Generate text via CLI using direct GGUF file path
+shimmy generate ./models/Phi-3-mini-4k-instruct-fp16.gguf --prompt "Write a haiku about programming" --max-tokens 50
 
 # Generate text via API
 curl -X POST http://localhost:11435/api/generate \

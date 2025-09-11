@@ -89,23 +89,149 @@ Point your AI tools to the displayed port - VSCode Copilot, Cursor, Continue.dev
 - **GitHub Releases**: [Latest binaries](https://github.com/Michael-A-Kuykendall/shimmy/releases/latest)
 - **Docker**: `docker pull shimmy/shimmy:latest` *(coming soon)*
 
-### 🍎 macOS Support
+### 🍎 macOS Installation & Setup
 
 **Full compatibility confirmed!** Shimmy works flawlessly on macOS with Metal GPU acceleration.
 
+#### Prerequisites
+
 ```bash
+# Install Xcode Command Line Tools (required for compilation)
+xcode-select --install
+
 # Install dependencies
 brew install cmake rust
 
-# Install shimmy
-cargo install shimmy
+# Verify Xcode path (important for compilation)
+xcode-select --print-path
 ```
 
-**✅ Verified working:**
-- Intel and Apple Silicon Macs
-- Metal GPU acceleration (automatic)
-- Xcode 17+ compatibility
+#### Installation
+
+```bash
+# Method 1: Install from crates.io (recommended)
+cargo install shimmy --features llama
+
+# Method 2: Install from source (for latest features)
+git clone https://github.com/Michael-A-Kuykendall/shimmy.git
+cd shimmy
+cargo install --path . --features llama
+```
+
+#### macOS-Specific Configuration
+
+**SDK Path Issues**: If you encounter compilation errors like `'stdio.h' file not found`, set the correct SDK path:
+
+```bash
+# Check available SDKs
+ls "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/"
+
+# Set SDK path (add to ~/.zshrc for persistence)
+export SDKROOT="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+
+# Reload shell configuration
+source ~/.zshrc
+```
+
+**Non-standard Xcode Location**: If Xcode is installed in a custom location (e.g., Downloads folder):
+
+```bash
+# Point to correct Xcode installation
+export SDKROOT="/Users/username/Downloads/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+
+# Or move Xcode to standard location (recommended)
+sudo mv "/Users/username/Downloads/Xcode.app" "/Applications/"
+```
+
+#### Development vs Production Commands
+
+```bash
+# Production (globally installed shimmy)
+shimmy serve                     # Auto-allocates port
+shimmy generate ./models/your-model.gguf --prompt "Hello" --max-tokens 50
+
+# Development (from source directory)
+cargo run --features llama --bin shimmy -- serve
+cargo run --features llama --bin shimmy -- generate ./models/Phi-3-mini-4k-instruct-fp16.gguf --prompt "Hello" --max-tokens 50
+```
+
+#### Troubleshooting macOS Issues
+
+**Command Not Found Error**:
+```bash
+# Check if shimmy is installed globally
+which shimmy
+shimmy --version
+
+# If not found, ensure ~/.cargo/bin is in PATH
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Version Mismatch Issues**:
+```bash
+# Check versions
+shimmy --version                 # Global version
+cargo run --bin shimmy -- --version  # Local development version
+
+# Update global installation
+cargo install shimmy --features llama --force
+```
+
+**Build Failures**:
+```bash
+# Clean and rebuild
+cargo clean
+export SDKROOT="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+cargo build --features llama
+```
+
+#### Metal GPU Acceleration
+
+**✅ Verified Features:**
+- Intel and Apple Silicon Macs (M1, M2, M3, M4)
+- Automatic Metal GPU acceleration
+- Xcode 17+ compatibility (Version 26.0 build 17A321)
 - All LoRA adapter features
+- Memory-mapped model loading
+
+**Performance on Apple Silicon:**
+- Phi-3-mini-4k (3.8B): ~50-100 tokens/sec
+- Automatic GPU memory management
+- Efficient memory usage with mmap
+
+#### Model Setup for macOS
+
+```bash
+# Download models to local directory
+mkdir -p ./models
+cd models
+
+# Download via Hugging Face CLI
+pip install huggingface_hub
+huggingface-cli download microsoft/Phi-3-mini-4k-instruct-gguf Phi-3-mini-4k-instruct-fp16.gguf --local-dir .
+
+# Or set environment variable
+export SHIMMY_BASE_GGUF="/path/to/your/model.gguf"
+```
+
+#### Quick Verification
+
+```bash
+# 1. Test model loading
+shimmy probe ./models/Phi-3-mini-4k-instruct-fp16.gguf
+
+# 2. Test generation
+shimmy generate ./models/Phi-3-mini-4k-instruct-fp16.gguf --prompt "Write a haiku about macOS" --max-tokens 50
+
+# 3. Start server
+shimmy serve --bind 127.0.0.1:11435
+
+# 4. Test API endpoint
+curl -X POST http://localhost:11435/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{"model": "default", "prompt": "Hello from macOS!", "max_tokens": 30}'
+```
 
 ## Integration Examples
 
@@ -132,6 +258,52 @@ cargo install shimmy
 
 ### Cursor IDE
 Works out of the box - just point to `http://localhost:11435/v1`
+
+## 🔄 Recent Updates (v1.3.0)
+
+### ✅ **macOS Compatibility Enhancements**
+- **Full Xcode 17+ support** (Version 26.0 build 17A321) with detailed troubleshooting
+- **Enhanced SDK path handling** for non-standard Xcode installations
+- **Complete installation guide** with both production and development workflows
+- **Metal GPU acceleration** verified on M1-M4 Apple Silicon chips
+
+### 🚀 **CLI Improvements** 
+- **Direct GGUF file support**: CLI commands now accept both model names AND direct `.gguf` file paths
+  ```bash
+  # Works with registered models
+  shimmy generate phi3-lora --prompt "Hello" 
+  
+  # NEW: Works with direct file paths
+  shimmy generate ./models/Phi-3-mini-4k-instruct-fp16.gguf --prompt "Hello"
+  ```
+- **Shell escaping fixes**: Resolved "Hello!" prompt bug caused by bash history expansion
+- **Comprehensive help text** with special character handling guidance
+
+### 🔧 **Developer Experience**
+- **Enhanced server welcome page** with interactive model browser and API documentation
+- **Improved error messages** with clear troubleshooting steps for common issues
+- **Version management clarity** between development vs production installations
+- **Comprehensive test coverage** including special character handling in prompts
+
+### 📖 **Documentation Updates**
+- **Expanded macOS section** with step-by-step installation and troubleshooting
+- **Shell escaping best practices** with examples for special characters
+- **Updated examples** showing both CLI usage patterns
+- **Performance benchmarks** and verification commands
+
+### 🔍 **Testing & Quality**
+- **Property-based testing** for CLI argument parsing with special characters
+- **Integration test improvements** with better error handling
+- **Workflow test enhancements** with comprehensive edge case coverage
+- **Cache performance testing** infrastructure
+
+### 🛠 **Infrastructure**
+- **Port management improvements** for development workflows  
+- **Enhanced metrics endpoint** with detailed system information
+- **Better WebSocket handling** and streaming capabilities
+- **Improved build system** with feature flag management
+
+These updates focus on making Shimmy more reliable and user-friendly, especially for macOS developers, while maintaining the core promise of being a fast, lightweight alternative to larger AI inference solutions.
 
 ## Why Shimmy Will Always Be Free
 
@@ -160,13 +332,30 @@ I built Shimmy because I was tired of 680MB binaries to run a 4GB model.
 
 ### CLI Commands
 ```bash
+# Production (installed version)
 shimmy serve                    # Start server (auto port allocation)
 shimmy serve --bind 127.0.0.1:8080  # Manual port binding
 shimmy list                     # Show available models  
 shimmy discover                 # Refresh model discovery
-shimmy generate --name X --prompt "Hi"  # Test generation
+shimmy generate ./models/your-model.gguf --prompt "Hi" --max-tokens 50  # Test generation
 shimmy probe model-name         # Verify model loads
+
+# Development (from source)
+cargo run --features llama --bin shimmy -- serve  # Start development server
+cargo run --features llama --bin shimmy -- generate ./models/Phi-3-mini-4k-instruct-fp16.gguf --prompt "Hi" --max-tokens 50
 ```
+
+> **💡 Shell Tip**: When using prompts with special characters (like `!`), wrap them in single quotes:  
+> `shimmy generate model-name --prompt 'Hello!' --max-tokens 50`
+> 
+> **Common Shell Escaping Issues:**
+> - `"Hello!"` ❌ (bash history expansion)
+> - `'Hello!'` ✅ (single quotes prevent expansion)
+> - `"Hello\!"` ✅ (escaped exclamation)
+> - `"Hello"'!'` ✅ (mixed quoting)
+
+> **💡 Shell Tip**: When using prompts with special characters (like `!`), wrap them in single quotes:  
+> `shimmy generate model-name --prompt 'Hello!' --max-tokens 50`
 
 ## Technical Architecture
 

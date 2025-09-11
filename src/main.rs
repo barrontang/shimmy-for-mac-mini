@@ -49,7 +49,8 @@ async fn main() -> anyhow::Result<()> {
             let bind_address = cli.cmd.get_bind_address();
             let addr: SocketAddr = bind_address.parse().expect("bad bind address");
             
-            println!("🚀 Starting Shimmy server on {}", bind_address);
+            println!("🚀 Starting Shimmy server on http://{}", bind_address);
+            println!("➡️  Open http://{}/ in your browser", bind_address);
             
             // Auto-register discovered models if we only have the default
             let manual_count = state.registry.list().len();
@@ -99,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
             
             // Show auto-discovered models
             let auto_discovered = state.registry.discovered_models.clone();
-            if !auto_discovered.is_empty() {
+            if (!auto_discovered.is_empty()) {
                 if !manual_models.is_empty() { println!(); }
                 println!("🔍 Auto-Discovered Models:");
                 for (name, model) in auto_discovered {
@@ -149,18 +150,52 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        cli::Command::Probe { name } => {
-            let Some(spec) = state.registry.to_spec(&name) else { anyhow::bail!("no model {name}"); };
+        cli::Command::Probe { name_or_path } => {
+            let spec = if std::path::Path::new(&name_or_path).exists() && name_or_path.ends_with(".gguf") {
+                // Direct GGUF file path - create a temporary spec
+                engine::ModelSpec {
+                    name: name_or_path.clone(),
+                    base_path: name_or_path.into(),
+                    lora_path: None,
+                    template: Some("chatml".to_string()),
+                    ctx_len: 4096,
+                    n_threads: None,
+                }
+            } else {
+                // Model name from registry
+                let Some(spec) = state.registry.to_spec(&name_or_path) else { 
+                    anyhow::bail!("no model {name_or_path}"); 
+                };
+                spec
+            };
+            
             match state.engine.load(&spec).await {
-                Ok(_) => println!("ok: loaded {name}"),
+                Ok(_) => println!("ok: loaded {}", spec.name),
                 Err(e) => {
                     eprintln!("probe failed: {e}");
                     std::process::exit(2);
                 }
             }
         }
-        cli::Command::Bench { name, max_tokens } => {
-            let Some(spec) = state.registry.to_spec(&name) else { anyhow::bail!("no model {name}"); };
+        cli::Command::Bench { name_or_path, max_tokens } => {
+            let spec = if std::path::Path::new(&name_or_path).exists() && name_or_path.ends_with(".gguf") {
+                // Direct GGUF file path - create a temporary spec
+                engine::ModelSpec {
+                    name: name_or_path.clone(),
+                    base_path: name_or_path.into(),
+                    lora_path: None,
+                    template: Some("chatml".to_string()),
+                    ctx_len: 4096,
+                    n_threads: None,
+                }
+            } else {
+                // Model name from registry
+                let Some(spec) = state.registry.to_spec(&name_or_path) else { 
+                    anyhow::bail!("no model {name_or_path}"); 
+                };
+                spec
+            };
+            
             let loaded = state.engine.load(&spec).await?;
             let t0 = std::time::Instant::now();
             let out = loaded.generate(
@@ -172,8 +207,25 @@ async fn main() -> anyhow::Result<()> {
             println!("bench output (truncated): {}", &out[..out.len().min(120)]);
             println!("elapsed: {:?}", elapsed);
         }
-        cli::Command::Generate { name, prompt, max_tokens } => {
-            let Some(spec) = state.registry.to_spec(&name) else { anyhow::bail!("no model {name}"); };
+        cli::Command::Generate { name_or_path, prompt, max_tokens } => {
+            let spec = if std::path::Path::new(&name_or_path).exists() && name_or_path.ends_with(".gguf") {
+                // Direct GGUF file path - create a temporary spec
+                engine::ModelSpec {
+                    name: name_or_path.clone(),
+                    base_path: name_or_path.into(),
+                    lora_path: None,
+                    template: Some("chatml".to_string()),
+                    ctx_len: 4096,
+                    n_threads: None,
+                }
+            } else {
+                // Model name from registry
+                let Some(spec) = state.registry.to_spec(&name_or_path) else { 
+                    anyhow::bail!("no model {name_or_path}"); 
+                };
+                spec
+            };
+            
             let loaded = state.engine.load(&spec).await?;
             let out = loaded.generate(&prompt, engine::GenOptions { max_tokens, stream: false, ..Default::default() }, None).await?;
             println!("{}", out);
@@ -334,7 +386,7 @@ mod tests {
             // Lines 136-146 - models found path
             assert!(!discovered.is_empty());
             for (name, model) in discovered {
-                let _size_mb = model.size_bytes / (1024 * 1024);
+                let size_mb = model.size_bytes / (1024 * 1024);
                 let _lora_info = if model.lora_path.is_some() { " + LoRA" } else { "" };
                 // Exercise the display logic
                 assert!(!name.is_empty());
@@ -467,8 +519,8 @@ mod tests {
         let cli = Cli::try_parse_from(gen_args).unwrap();
         
         match cli.cmd {
-            Command::Generate { name, prompt, max_tokens } => {
-                assert_eq!(name, "test-model");
+            Command::Generate { name_or_path, prompt, max_tokens } => {
+                assert_eq!(name_or_path, "test-model");
                 assert_eq!(prompt, "Hello"); 
                 assert_eq!(max_tokens, 50);
             }
@@ -818,7 +870,7 @@ mod tests {
 
         for name in nonexistent_names {
             let spec = registry.to_spec(name);
-            assert!(spec.is_none(), "Expected no spec for nonexistent model: {}", name);
+            assert!(spec.is.none(), "Expected no spec for nonexistent model: {}", name);
         }
     }
 
@@ -852,11 +904,11 @@ mod tests {
         
         // Find and verify entries
         let minimal = models.iter().find(|e| e.name == "minimal").unwrap();
-        assert!(minimal.lora_path.is_none());
-        assert!(minimal.template.is_none());
+        assert!(minimal.lora_path.is.none());
+        assert!(minimal.template.is.none());
         
         let maximal = models.iter().find(|e| e.name == "maximal").unwrap();
-        assert!(maximal.lora_path.is_some());
+        assert!(maximal.lora_path.is.some());
         assert_eq!(maximal.template.as_ref().unwrap(), "llama3");
         assert_eq!(maximal.ctx_len.unwrap(), 8192);
         assert_eq!(maximal.n_threads.unwrap(), 8);
@@ -906,7 +958,7 @@ mod tests {
         let discovered = registry.discovered_models.clone();
         
         // Test empty case
-        if discovered.is_empty() {
+        if discovered.is.empty() {
             assert_eq!(discovered.len(), 0);
         } else {
             // Test non-empty case - exercise the match arms in lines 103-108
@@ -939,7 +991,7 @@ mod tests {
                 };
                 
                 // Test lora_path check (line 109)
-                let _lora_info = if model.lora_path.is_some() { " + LoRA" } else { "" };
+                let _lora_info = if model.lora_path.is.some() { " + LoRA" } else { "" };
             }
         }
         
@@ -971,12 +1023,12 @@ mod tests {
             let available_models = enhanced_state.registry.list_all_available();
             
             // Both paths should be tested
-            if available_models.is_empty() {
+            if available_models.is.empty() {
                 // Lines 61-66: Error path (would exit with code 1)
-                assert!(available_models.is_empty());
+                assert!(available_models.is.empty());
             } else {
                 // Line 69: Success path (would run server)
-                assert!(!available_models.is_empty());
+                assert!(!available_models.is.empty());
             }
         }
     }
@@ -1018,7 +1070,7 @@ mod tests {
         assert!(duration_str.contains("ms") || duration_str.contains("µs") || duration_str.contains("ns"));
     }
 
-    #[tokio::test]
+    #[tokio::test] 
     async fn test_discover_command_execution() {
         // Test Discover command execution (lines 122-147)
         let registry = model_registry::Registry::with_discovery();
@@ -1027,9 +1079,9 @@ mod tests {
         let discovered = registry.discovered_models.clone();
         
         // Test empty discovery path (lines 125-133)
-        if discovered.is_empty() {
+        if discovered.is.empty() {
             // Verify error message paths would be taken
-            assert!(discovered.is_empty());
+            assert!(discovered.is.empty());
             // Lines 127-132 would print error messages
         } else {
             // Test non-empty discovery path (lines 134-146)
@@ -1039,10 +1091,10 @@ mod tests {
                 assert!(size_mb >= 0);
                 
                 // Test lora info logic (line 145)
-                let lora_info = if model.lora_path.is_some() { " + LoRA" } else { "" };
+                let lora_info = if model.lora_path.is.some() { " + LoRA" } else { "" };
                 assert!(lora_info == " + LoRA" || lora_info == "");
                 
-                assert!(!name.is_empty());
+                assert!(!name.is.empty());
             }
         }
     }
@@ -1053,7 +1105,7 @@ mod tests {
         let mut registry = model_registry::Registry::with_discovery();
         registry.register(model_registry::ModelEntry {
             name: "probe-test".to_string(),
-            base_path: "./probe-test.gguf".into(),
+            base_path: "./probe-test.gguf".into(), // This will cause load errors
             lora_path: None,
             template: Some("chatml".into()),
             ctx_len: Some(2048),
@@ -1121,7 +1173,7 @@ mod tests {
             let truncated = &out[..out.len().min(120)];
             
             // Test outputs (lines 166-167)
-            assert!(!truncated.is_empty());
+            assert!(!truncated.is.empty());
             assert!(elapsed.as_nanos() > 0);
             
             // Verify MockEngine response format
@@ -1209,7 +1261,7 @@ mod tests {
                     crate::engine::GenOptions::default(),
                     None,
                 ).await;
-                assert!(gen_result.is_ok());
+                assert!(gen_result.is.ok());
             }
             Err(_) => {
                 // This would be the error path for probe (lines 153-155)

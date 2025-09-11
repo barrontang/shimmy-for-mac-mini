@@ -1,7 +1,72 @@
-use axum::{routing::{post, get}, Router, Json, extract::State};
+use axum::{routing::{post, get}, Router, Json, extract::State, response::Html};
 use std::{net::SocketAddr, sync::Arc};
 use serde_json::{json, Value};
 use crate::{api, util::diag::diag_handler, openai_compat, AppState};
+use axum::extract::Host;
+
+/// Root handler - provides a welcome page with available endpoints
+async fn root_handler(Host(host): Host, State(state): State<Arc<AppState>>) -> Html<String> {
+    let models = state.registry.list_all_available();
+    let model_list = if models.is_empty() {
+        "<li>No models discovered. Set SHIMMY_BASE_GGUF environment variable or place models in ~/.cache/huggingface/hub/</li>".to_string()
+    } else {
+        models.iter().map(|name| format!("<li>{}</li>", name)).collect::<Vec<_>>().join("\n")
+    };
+
+    Html(format!(r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shimmy Local AI Server</title>
+    <style>
+        body {{ font-family: system-ui, -apple-system, sans-serif; margin: 40px; line-height: 1.6; }}
+        .header {{ color: #2563eb; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; }}
+        .section {{ margin: 30px 0; }}
+        .endpoint {{ background: #f3f4f6; padding: 10px; margin: 5px 0; border-radius: 6px; font-family: monospace; }}
+        .status {{ color: #059669; font-weight: bold; }}
+        ul {{ padding-left: 20px; }}
+        .footer {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 Shimmy Local AI Server</h1>
+        <p class="status">✅ Server running on http://{host}</p>
+        <p>Version: {}</p>
+    </div>
+
+    <div class="section">
+        <h2>Available Models ({} total)</h2>
+        <ul>{}</ul>
+    </div>
+
+    <div class="section">
+        <h2>API Endpoints</h2>
+        <div class="endpoint">GET http://{host}/health - Health check</div>
+        <div class="endpoint">GET http://{host}/metrics - Server metrics</div>
+        <div class="endpoint">GET http://{host}/v1/models - List models (OpenAI compatible)</div>
+        <div class="endpoint">POST http://{host}/v1/chat/completions - Chat completions (OpenAI compatible)</div>
+        <div class="endpoint">POST http://{host}/api/generate - Generate text (Shimmy native)</div>
+        <div class="endpoint">GET ws://{host}/ws/generate - WebSocket streaming</div>
+    </div>
+
+    <div class="section">
+        <h2>Quick Test</h2>
+        <p>Test the server with curl:</p>
+        <div class="endpoint">
+curl -X POST http://{host}/api/generate \<br>
+&nbsp;&nbsp;-H "Content-Type: application/json" \<br>
+&nbsp;&nbsp;-d '{{"model": "default", "prompt": "Hello!", "max_tokens": 50}}'
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Shimmy - Fast local AI inference • <a href="https://github.com/Michael-A-Kuykendall/shimmy">GitHub</a></p>
+    </div>
+</body>
+</html>
+"#, env!("CARGO_PKG_VERSION"), models.len(), model_list))
+}
 
 /// Enhanced health check endpoint for production use
 async fn health_check(State(state): State<Arc<AppState>>) -> Json<Value> {
@@ -82,6 +147,7 @@ async fn metrics_endpoint(State(state): State<Arc<AppState>>) -> Json<Value> {
 pub async fn run(addr: SocketAddr, state: Arc<AppState>) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let app = Router::new()
+        .route("/", get(root_handler))
         .route("/health", get(health_check))
         .route("/metrics", get(metrics_endpoint))
         .route("/diag", get(diag_handler))

@@ -106,7 +106,7 @@ fn test_cli_parsing() {
     let args = vec!["shimmy", "probe", "test-model"];
     let cli = Cli::try_parse_from(args).unwrap();
     match cli.cmd {
-        Command::Probe { name } => assert_eq!(name, "test-model"),
+        Command::Probe { name_or_path } => assert_eq!(name_or_path, "test-model"),
         _ => panic!("Expected Probe command"),
     }
     
@@ -114,8 +114,8 @@ fn test_cli_parsing() {
     let args = vec!["shimmy", "generate", "test-model", "--prompt", "Hello", "--max-tokens", "50"];
     let cli = Cli::try_parse_from(args).unwrap();
     match cli.cmd {
-        Command::Generate { name, prompt, max_tokens } => {
-            assert_eq!(name, "test-model");
+        Command::Generate { name_or_path, prompt, max_tokens } => {
+            assert_eq!(name_or_path, "test-model");
             assert_eq!(prompt, "Hello");
             assert_eq!(max_tokens, 50);
         }
