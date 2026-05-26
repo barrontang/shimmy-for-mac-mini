@@ -870,7 +870,7 @@ mod tests {
 
         for name in nonexistent_names {
             let spec = registry.to_spec(name);
-            assert!(spec.is.none(), "Expected no spec for nonexistent model: {}", name);
+            assert!(spec.is_none(), "Expected no spec for nonexistent model: {}", name);
         }
     }
 
@@ -904,11 +904,11 @@ mod tests {
         
         // Find and verify entries
         let minimal = models.iter().find(|e| e.name == "minimal").unwrap();
-        assert!(minimal.lora_path.is.none());
-        assert!(minimal.template.is.none());
+        assert!(minimal.lora_path.is_none());
+        assert!(minimal.template.is_none());
         
         let maximal = models.iter().find(|e| e.name == "maximal").unwrap();
-        assert!(maximal.lora_path.is.some());
+        assert!(maximal.lora_path.is_some());
         assert_eq!(maximal.template.as_ref().unwrap(), "llama3");
         assert_eq!(maximal.ctx_len.unwrap(), 8192);
         assert_eq!(maximal.n_threads.unwrap(), 8);
@@ -958,7 +958,7 @@ mod tests {
         let discovered = registry.discovered_models.clone();
         
         // Test empty case
-        if discovered.is.empty() {
+        if discovered.is_empty() {
             assert_eq!(discovered.len(), 0);
         } else {
             // Test non-empty case - exercise the match arms in lines 103-108
@@ -991,7 +991,7 @@ mod tests {
                 };
                 
                 // Test lora_path check (line 109)
-                let _lora_info = if model.lora_path.is.some() { " + LoRA" } else { "" };
+                let _lora_info = if model.lora_path.is_some() { " + LoRA" } else { "" };
             }
         }
         
@@ -1023,12 +1023,12 @@ mod tests {
             let available_models = enhanced_state.registry.list_all_available();
             
             // Both paths should be tested
-            if available_models.is.empty() {
+            if available_models.is_empty() {
                 // Lines 61-66: Error path (would exit with code 1)
-                assert!(available_models.is.empty());
+                assert!(available_models.is_empty());
             } else {
                 // Line 69: Success path (would run server)
-                assert!(!available_models.is.empty());
+                assert!(!available_models.is_empty());
             }
         }
     }
@@ -1079,9 +1079,9 @@ mod tests {
         let discovered = registry.discovered_models.clone();
         
         // Test empty discovery path (lines 125-133)
-        if discovered.is.empty() {
+        if discovered.is_empty() {
             // Verify error message paths would be taken
-            assert!(discovered.is.empty());
+            assert!(discovered.is_empty());
             // Lines 127-132 would print error messages
         } else {
             // Test non-empty discovery path (lines 134-146)
@@ -1091,10 +1091,10 @@ mod tests {
                 assert!(size_mb >= 0);
                 
                 // Test lora info logic (line 145)
-                let lora_info = if model.lora_path.is.some() { " + LoRA" } else { "" };
+                let lora_info = if model.lora_path.is_some() { " + LoRA" } else { "" };
                 assert!(lora_info == " + LoRA" || lora_info == "");
                 
-                assert!(!name.is.empty());
+                assert!(!name.is_empty());
             }
         }
     }
@@ -1173,7 +1173,7 @@ mod tests {
             let truncated = &out[..out.len().min(120)];
             
             // Test outputs (lines 166-167)
-            assert!(!truncated.is.empty());
+            assert!(!truncated.is_empty());
             assert!(elapsed.as_nanos() > 0);
             
             // Verify MockEngine response format
@@ -1261,7 +1261,7 @@ mod tests {
                     crate::engine::GenOptions::default(),
                     None,
                 ).await;
-                assert!(gen_result.is.ok());
+                assert!(gen_result.is_ok());
             }
             Err(_) => {
                 // This would be the error path for probe (lines 153-155)

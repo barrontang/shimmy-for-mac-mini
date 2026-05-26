@@ -26,7 +26,6 @@ pub mod invariant_ppt;
 #[cfg(test)]
 pub mod tests;
 
-#[cfg(test)]
 pub mod test_utils;
 
 // Note: Mock infrastructure removed - use real testing with local models
