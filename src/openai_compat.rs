@@ -370,6 +370,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a real .gguf model file to run"]
     async fn test_chat_completions_streaming_request() {
         use crate::model_registry::ModelEntry;
         
@@ -405,6 +406,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a real .gguf model file to run"]
     async fn test_chat_completions_non_streaming_request() {
         use crate::model_registry::ModelEntry;
         

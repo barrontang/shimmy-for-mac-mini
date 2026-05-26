@@ -517,6 +517,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a real .gguf model file to run"]
     async fn test_generate_handler_streaming() {
         use crate::model_registry::{Registry, ModelEntry};
         use crate::engine::adapter::InferenceEngineAdapter;
@@ -552,6 +553,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a real .gguf model file to run"]
     async fn test_generate_handler_with_messages() {
         use crate::model_registry::{Registry, ModelEntry};
         use crate::engine::adapter::InferenceEngineAdapter;

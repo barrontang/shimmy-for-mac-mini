@@ -19,10 +19,18 @@ impl Default for HuggingFaceEngine {
 
 impl HuggingFaceEngine {
     pub fn new() -> Self {
-        // Use the verified Python path from CLAUDE.md
-        Self {
-            python_path: "C:/Python311/python.exe".to_string(),
-        }
+        // Use platform-appropriate python path
+        let python_path = if cfg!(target_os = "windows") {
+            "C:/Python311/python.exe".to_string()
+        } else {
+            // macOS/Linux: check python3 then python
+            if std::process::Command::new("python3").arg("--version").output().is_ok() {
+                "python3".to_string()
+            } else {
+                "python".to_string()
+            }
+        };
+        Self { python_path }
     }
     
 }
@@ -259,13 +267,19 @@ mod tests {
     #[test]
     fn test_default_creates_new_instance() {
         let engine = HuggingFaceEngine::default();
-        assert_eq!(engine.python_path, "C:/Python311/python.exe");
+        // python_path is platform-dependent
+        assert!(!engine.python_path.is_empty());
     }
 
     #[test]
     fn test_new_creates_with_correct_python_path() {
         let engine = HuggingFaceEngine::new();
-        assert_eq!(engine.python_path, "C:/Python311/python.exe");
+        // On Windows uses C:/Python311/python.exe, on other platforms uses python3 or python
+        if cfg!(target_os = "windows") {
+            assert_eq!(engine.python_path, "C:/Python311/python.exe");
+        } else {
+            assert!(engine.python_path == "python3" || engine.python_path == "python");
+        }
     }
 
     #[tokio::test]
@@ -309,10 +323,19 @@ mod tests {
 
         // This will fail if Python isn't available, but tests the error path
         let result = engine.load(&spec).await;
-        // Either succeeds or fails with Python dependency error
+        // Either succeeds or fails with Python dependency error or IO error (python not found)
         if let Err(e) = result {
             let error_msg = format!("{}", e);
-            assert!(error_msg.contains("Python dependencies") || error_msg.contains("Failed to load HuggingFace model"));
+            // Accept any error: Python not found (IO), missing deps, or model load failure
+            assert!(
+                error_msg.contains("Python dependencies")
+                    || error_msg.contains("Failed to load HuggingFace model")
+                    || error_msg.contains("os error")
+                    || error_msg.contains("No such file")
+                    || error_msg.contains("not found")
+                    || error_msg.contains("cannot find"),
+                "Unexpected error: {}", error_msg
+            );
         }
     }
 

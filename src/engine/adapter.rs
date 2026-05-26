@@ -34,14 +34,14 @@ impl InferenceEngineAdapter {
     }
 
     /// Auto-detect best backend for model
-    fn select_backend(&self, spec: &ModelSpec) -> BackendChoice {
+    fn select_backend(&self, spec: &ModelSpec) -> Result<BackendChoice> {
         // Check file extension and path patterns to determine optimal backend
         let path_str = spec.base_path.to_string_lossy();
         
         // Check for SafeTensors files FIRST - native Rust implementation
         if let Some(ext) = spec.base_path.extension().and_then(|s| s.to_str()) {
             if ext == "safetensors" {
-                return BackendChoice::SafeTensors;
+                return Ok(BackendChoice::SafeTensors);
             }
         }
         
@@ -49,11 +49,10 @@ impl InferenceEngineAdapter {
         if let Some(ext) = spec.base_path.extension().and_then(|s| s.to_str()) {
             if ext == "gguf" {
                 #[cfg(feature = "llama")]
-                { return BackendChoice::Llama; }
+                { return Ok(BackendChoice::Llama); }
                 #[cfg(not(feature = "llama"))]
                 { 
-                    // This shouldn't happen with default features, but handle gracefully
-                    panic!("GGUF file detected but llama feature not enabled. Please install with --features llama");
+                    return Err(anyhow::anyhow!("GGUF file detected but llama feature not enabled. Please compile with --features llama"));
                 }
             }
         }
@@ -61,38 +60,38 @@ impl InferenceEngineAdapter {
         // Check for Ollama blob files (GGUF files without extension)
         if path_str.contains("ollama") && path_str.contains("blobs") && path_str.contains("sha256-") {
             #[cfg(feature = "llama")]
-            { return BackendChoice::Llama; }
+            { return Ok(BackendChoice::Llama); }
             #[cfg(not(feature = "llama"))]
             { 
                 #[cfg(feature = "huggingface")]
-                { return BackendChoice::HuggingFace; }
+                { return Ok(BackendChoice::HuggingFace); }
                 #[cfg(not(feature = "huggingface"))]
-                { panic!("Ollama blob detected but no backend enabled"); }
+                { return Err(anyhow::anyhow!("Ollama blob detected but no backend enabled")); }
             }
         }
         
         // Check for other patterns that indicate GGUF files
         if path_str.contains(".gguf") || spec.name.contains("llama") || spec.name.contains("phi") || spec.name.contains("qwen") || spec.name.contains("gemma") || spec.name.contains("mistral") {
             #[cfg(feature = "llama")]
-            { return BackendChoice::Llama; }
+            { return Ok(BackendChoice::Llama); }
             #[cfg(not(feature = "llama"))]
             { 
                 #[cfg(feature = "huggingface")]
-                { return BackendChoice::HuggingFace; }
+                { return Ok(BackendChoice::HuggingFace); }
                 #[cfg(not(feature = "huggingface"))]
-                { panic!("GGUF model detected but no backend enabled"); }
+                { return Err(anyhow::anyhow!("GGUF model detected but no backend enabled")); }
             }
         }
         
         // Default to HuggingFace for other models
         #[cfg(feature = "huggingface")]
-        { BackendChoice::HuggingFace }
+        { Ok(BackendChoice::HuggingFace) }
         #[cfg(not(feature = "huggingface"))]
         { 
             #[cfg(feature = "llama")]
-            { BackendChoice::Llama }
+            { Ok(BackendChoice::Llama) }
             #[cfg(not(feature = "llama"))]
-            { panic!("No backend features enabled. Please compile with --features llama or --features huggingface"); }
+            { Err(anyhow::anyhow!("No backend features enabled. Please compile with --features llama or --features huggingface")) }
         }
     }
 }
@@ -110,7 +109,7 @@ enum BackendChoice {
 impl InferenceEngine for InferenceEngineAdapter {
     async fn load(&self, spec: &ModelSpec) -> Result<Box<dyn LoadedModel>> {
         // Select backend and load model directly (no caching for now to avoid complexity)
-        let backend = self.select_backend(spec);
+        let backend = self.select_backend(spec)?;
         match backend {
             BackendChoice::SafeTensors => {
                 // Use native SafeTensors engine - NO Python dependency!
