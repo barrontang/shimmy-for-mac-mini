@@ -1,18 +1,33 @@
 # Quick Start: Shimmy in 30 Seconds
 
-## 1. Download
-```bash
-# Linux/macOS
-curl -L https://github.com/Michael-A-Kuykendall/shimmy/releases/latest/download/shimmy -o shimmy
-chmod +x shimmy
+**✨ NEW in v2.0.0**: Airframe GPU engine — pure-Rust WGSL inference. One binary per platform, no CUDA/Vulkan SDK required.
 
-# Windows
-curl -L https://github.com/Michael-A-Kuykendall/shimmy/releases/latest/download/shimmy.exe -o shimmy.exe
+## 1. Download Pre-Built Binary
+
+Pick your platform — all binaries use automatic WebGPU (wgpu) GPU detection:
+
+```bash
+# Windows x64
+curl -L https://github.com/Michael-A-Kuykendall/shimmy/releases/latest/download/shimmy-windows-x86_64.exe -o shimmy.exe
+
+# Linux x86_64
+curl -L https://github.com/Michael-A-Kuykendall/shimmy/releases/latest/download/shimmy-linux-x86_64 -o shimmy && chmod +x shimmy
+
+# macOS ARM64 (Apple Silicon)
+curl -L https://github.com/Michael-A-Kuykendall/shimmy/releases/latest/download/shimmy-macos-arm64 -o shimmy && chmod +x shimmy
+
+# macOS Intel
+curl -L https://github.com/Michael-A-Kuykendall/shimmy/releases/latest/download/shimmy-macos-intel -o shimmy && chmod +x shimmy
+
+# Linux ARM64
+curl -L https://github.com/Michael-A-Kuykendall/shimmy/releases/latest/download/shimmy-linux-aarch64 -o shimmy && chmod +x shimmy
 ```
+
+**GPU detection is automatic.** Airframe uses wgpu to find the best adapter on your hardware.
 
 ## 2. Get a Model
 Place any `.gguf` file in one of these locations:
-- `./models/your-model.gguf`  
+- `./models/your-model.gguf`
 - Set `SHIMMY_BASE_GGUF=/path/to/your-model.gguf`
 - Or just put it in `~/Downloads/` - Shimmy will find it
 
@@ -43,7 +58,7 @@ That's it! Shimmy is now running on `http://localhost:11435`
   "models": [{
     "title": "Local Shimmy",
     "provider": "openai",
-    "model": "your-model-name", 
+    "model": "your-model-name",
     "apiBase": "http://localhost:11435/v1"
   }]
 }

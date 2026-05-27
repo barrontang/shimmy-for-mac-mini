@@ -13,7 +13,21 @@ This guide covers all configuration options for Shimmy.
 
 ### Optional
 
-- **`SHIMMY_LORA_GGUF`**: Path to LoRA adapter file
+- **`SHIMMY_ENGINE_BACKEND`**: Inference engine to use. Default: `airframe`.
+  - `airframe` — Airframe GPU engine (pure-Rust WGSL, default in v2.0)
+  - `llama` — llama.cpp legacy path
+  ```bash
+  export SHIMMY_ENGINE_BACKEND=airframe
+  ```
+
+- **`SHIMMY_MAX_CTX`**: Maximum context window in tokens. Default: model native (typically 2048).
+  Set higher values to enable YaRN RoPE scaling for extended context.
+  ```bash
+  export SHIMMY_MAX_CTX=4096   # 4K context
+  export SHIMMY_MAX_CTX=16384  # 16K context with YaRN scaling
+  ```
+
+- **`SHIMMY_LORA_GGUF`**: Path to LoRA adapter file (llama.cpp legacy path only)
   ```bash
   export SHIMMY_LORA_GGUF=/path/to/your/lora.gguf
   ```
@@ -119,7 +133,29 @@ export SHIMMY_MMAP=true
 
 ### GPU Support
 
-Currently, shimmy uses CPU-only inference. GPU support is planned for future releases.
+Shimmy v2.0 uses the **Airframe** engine (WebGPU via wgpu) for GPU acceleration. No CUDA toolkit, Vulkan SDK, or ROCm installation is required.
+
+**Supported GPU Vendors:**
+- **NVIDIA**: D3D12 (Windows) or Vulkan (Linux) backend via wgpu
+- **AMD**: Vulkan backend (Linux/Windows); Metal on macOS via wgpu
+- **Intel**: D3D12 or Vulkan adapter selected by wgpu
+- **Apple Silicon**: Metal backend selected automatically
+
+**Requirements:**
+- Download a release binary from GitHub Releases (Airframe GPU engine included)
+- No additional SDK or driver installation needed for default path
+
+**Configuration:**
+No manual configuration required — wgpu auto-selects the best GPU adapter.
+
+**Verification:**
+Check which GPU adapter was selected:
+```bash
+shimmy gpu-info
+```
+
+**Legacy llama.cpp GPU (CUDA, ROCm, Vulkan):**
+Available via `--legacy` flag or `SHIMMY_ENGINE_BACKEND=llama`. See `docs/MIGRATION_v2.md`.
 
 ## Security Considerations
 

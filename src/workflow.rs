@@ -1,7 +1,7 @@
+use crate::error::{Result, ShimmyError};
+use crate::tools::{ToolCall, ToolRegistry};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use anyhow::Result;
-use crate::tools::{ToolCall, ToolRegistry};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowStep {
@@ -28,7 +28,7 @@ pub enum WorkflowStepType {
     },
     #[serde(rename = "data_transform")]
     DataTransform {
-        operation: String, // "filter", "map", "reduce", "extract"
+        operation: String,  // "filter", "map", "reduce", "extract"
         expression: String, // JSONPath or simple operations
     },
     #[serde(rename = "conditional")]
@@ -87,7 +87,7 @@ impl WorkflowEngine {
         let start_time = std::time::Instant::now();
         let mut step_results = HashMap::new();
         let mut context = request.context;
-        
+
         // Add workflow inputs to context
         for (key, value) in request.workflow.inputs {
             context.insert(key, value);
@@ -95,11 +95,16 @@ impl WorkflowEngine {
 
         // Execute steps in dependency order
         let execution_order = self.calculate_execution_order(&request.workflow.steps)?;
-        
+
         for step_id in execution_order {
-            let step = request.workflow.steps.iter()
+            let step = request
+                .workflow
+                .steps
+                .iter()
                 .find(|s| s.id == step_id)
-                .ok_or_else(|| anyhow::anyhow!("Step {} not found", step_id))?;
+                .ok_or_else(|| ShimmyError::WorkflowStepNotFound {
+                    step_id: step_id.clone(),
+                })?;
 
             let step_start = std::time::Instant::now();
             let step_result = match self.execute_step(step, &context, &step_results).await {
@@ -120,7 +125,7 @@ impl WorkflowEngine {
                     result: serde_json::Value::Null,
                     error: Some(e.to_string()),
                     execution_time_ms: step_start.elapsed().as_millis() as u64,
-                }
+                },
             };
 
             step_results.insert(step.id.clone(), step_result);
@@ -128,21 +133,34 @@ impl WorkflowEngine {
 
         // Collect outputs
         let mut outputs = HashMap::new();
+        let mut missing_outputs = Vec::new();
         for output_step_id in &request.workflow.outputs {
             if let Some(step_result) = step_results.get(output_step_id) {
                 outputs.insert(output_step_id.clone(), step_result.result.clone());
+            } else {
+                missing_outputs.push(output_step_id.clone());
             }
         }
 
-        // Check if workflow succeeded (all steps succeeded)
-        let success = step_results.values().all(|result| result.success);
+        // Check if workflow succeeded (all steps succeeded and all outputs found)
+        let success =
+            step_results.values().all(|result| result.success) && missing_outputs.is_empty();
 
         Ok(WorkflowResult {
             workflow_id: request.workflow.id,
             success,
             step_results,
             outputs,
-            error: if success { None } else { Some("One or more steps failed".to_string()) },
+            error: if !missing_outputs.is_empty() {
+                Some(format!(
+                    "Missing output steps: {}",
+                    missing_outputs.join(", ")
+                ))
+            } else if !success {
+                Some("One or more steps failed".to_string())
+            } else {
+                None
+            },
             execution_time_ms: start_time.elapsed().as_millis() as u64,
         })
     }
@@ -152,53 +170,71 @@ impl WorkflowEngine {
         step: &'a WorkflowStep,
         context: &'a HashMap<String, serde_json::Value>,
         step_results: &'a HashMap<String, StepResult>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<serde_json::Value>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<serde_json::Value>> + Send + 'a>>
+    {
         Box::pin(async move {
             match &step.step_type {
-                WorkflowStepType::LLMGeneration { prompt, model, max_tokens, temperature } => {
+                WorkflowStepType::LLMGeneration {
+                    prompt,
+                    model,
+                    max_tokens,
+                    temperature,
+                } => {
                     // Substitute context variables in prompt
                     let resolved_prompt = self.substitute_variables(prompt, context)?;
-                    
+
                     // Use the existing LLM generation logic
                     // This would integrate with the actual generation engine
-                    let result = self.call_llm(
-                        &resolved_prompt,
-                        model.as_deref().unwrap_or("default"),
-                        max_tokens.unwrap_or(512),
-                        temperature.unwrap_or(0.7),
-                    ).await?;
-                    
+                    let result = self
+                        .call_llm(
+                            &resolved_prompt,
+                            model.as_deref().unwrap_or("default"),
+                            max_tokens.unwrap_or(512),
+                            temperature.unwrap_or(0.7),
+                        )
+                        .await?;
+
                     Ok(serde_json::json!({
                         "text": result,
                         "type": "llm_generation"
                     }))
                 }
-                
-                WorkflowStepType::ToolCall { tool_name, arguments } => {
+
+                WorkflowStepType::ToolCall {
+                    tool_name,
+                    arguments,
+                } => {
                     // Substitute context variables in arguments
                     let resolved_args = self.substitute_variables_in_json(arguments, context)?;
-                    
+
                     let tool_call = ToolCall {
                         name: tool_name.clone(),
                         arguments: resolved_args,
                     };
-                    
+
                     let tool_result = self.tool_registry.execute_tool(&tool_call)?;
-                    
+
                     if tool_result.success {
                         Ok(tool_result.result)
                     } else {
-                        Err(anyhow::anyhow!("Tool execution failed: {:?}", tool_result.error))
+                        Err(ShimmyError::ToolExecutionFailed {
+                            error: format!("{:?}", tool_result.error),
+                        })
                     }
                 }
-                
-                WorkflowStepType::DataTransform { operation, expression } => {
-                    self.execute_data_transform(operation, expression, context, step_results)
-                }
-                
-                WorkflowStepType::Conditional { condition, if_true, if_false } => {
+
+                WorkflowStepType::DataTransform {
+                    operation,
+                    expression,
+                } => self.execute_data_transform(operation, expression, context, step_results),
+
+                WorkflowStepType::Conditional {
+                    condition,
+                    if_true,
+                    if_false,
+                } => {
                     let condition_result = self.evaluate_condition(condition, context)?;
-                    
+
                     if condition_result {
                         self.execute_step(if_true, context, step_results).await
                     } else if let Some(false_step) = if_false {
@@ -211,14 +247,14 @@ impl WorkflowEngine {
         })
     }
 
-    fn calculate_execution_order(&self, steps: &[WorkflowStep]) -> Result<Vec<String>> {
+    pub fn calculate_execution_order(&self, steps: &[WorkflowStep]) -> Result<Vec<String>> {
         let mut order = Vec::new();
         let mut visited = std::collections::HashSet::new();
         let mut temp_visited = std::collections::HashSet::new();
 
         for step in steps {
             if !visited.contains(&step.id) {
-                self.visit_step(&step.id, steps, &mut visited, &mut temp_visited, &mut order)?;
+                Self::visit_step(&step.id, steps, &mut visited, &mut temp_visited, &mut order)?;
             }
         }
 
@@ -226,7 +262,6 @@ impl WorkflowEngine {
     }
 
     fn visit_step(
-        &self,
         step_id: &str,
         steps: &[WorkflowStep],
         visited: &mut std::collections::HashSet<String>,
@@ -234,7 +269,9 @@ impl WorkflowEngine {
         order: &mut Vec<String>,
     ) -> Result<()> {
         if temp_visited.contains(step_id) {
-            return Err(anyhow::anyhow!("Circular dependency detected involving step {}", step_id));
+            return Err(ShimmyError::WorkflowCircularDependency {
+                step_id: step_id.to_string(),
+            });
         }
 
         if visited.contains(step_id) {
@@ -243,12 +280,14 @@ impl WorkflowEngine {
 
         temp_visited.insert(step_id.to_string());
 
-        let step = steps.iter()
-            .find(|s| s.id == step_id)
-            .ok_or_else(|| anyhow::anyhow!("Step {} not found", step_id))?;
+        let step = steps.iter().find(|s| s.id == step_id).ok_or_else(|| {
+            ShimmyError::WorkflowStepNotFound {
+                step_id: step_id.to_string(),
+            }
+        })?;
 
         for dep in &step.depends_on {
-            self.visit_step(dep, steps, visited, temp_visited, order)?;
+            Self::visit_step(dep, steps, visited, temp_visited, order)?;
         }
 
         temp_visited.remove(step_id);
@@ -258,9 +297,13 @@ impl WorkflowEngine {
         Ok(())
     }
 
-    fn substitute_variables(&self, text: &str, context: &HashMap<String, serde_json::Value>) -> Result<String> {
+    pub fn substitute_variables(
+        &self,
+        text: &str,
+        context: &HashMap<String, serde_json::Value>,
+    ) -> Result<String> {
         let mut result = text.to_string();
-        
+
         // Simple variable substitution: {{variable_name}}
         for (key, value) in context {
             let placeholder = format!("{{{{{}}}}}", key);
@@ -270,7 +313,7 @@ impl WorkflowEngine {
             };
             result = result.replace(&placeholder, &replacement);
         }
-        
+
         Ok(result)
     }
 
@@ -280,18 +323,22 @@ impl WorkflowEngine {
         context: &HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value> {
         match json {
-            serde_json::Value::String(s) => {
-                Ok(serde_json::Value::String(self.substitute_variables(s, context)?))
-            }
+            serde_json::Value::String(s) => Ok(serde_json::Value::String(
+                self.substitute_variables(s, context)?,
+            )),
             serde_json::Value::Object(obj) => {
                 let mut new_obj = serde_json::Map::new();
                 for (key, value) in obj {
-                    new_obj.insert(key.clone(), self.substitute_variables_in_json(value, context)?);
+                    new_obj.insert(
+                        key.clone(),
+                        self.substitute_variables_in_json(value, context)?,
+                    );
                 }
                 Ok(serde_json::Value::Object(new_obj))
             }
             serde_json::Value::Array(arr) => {
-                let new_arr: Result<Vec<_>> = arr.iter()
+                let new_arr: Result<Vec<_>> = arr
+                    .iter()
                     .map(|item| self.substitute_variables_in_json(item, context))
                     .collect();
                 Ok(serde_json::Value::Array(new_arr?))
@@ -314,21 +361,27 @@ impl WorkflowEngine {
                     Ok(value.clone())
                 } else if expression.starts_with("step_") {
                     // Extract from step result
-                    let step_id = expression.strip_prefix("step_").unwrap();
+                    let step_id = expression.strip_prefix("step_").unwrap_or(expression);
                     if let Some(step_result) = step_results.get(step_id) {
                         Ok(step_result.result.clone())
                     } else {
-                        Err(anyhow::anyhow!("Step {} not found", step_id))
+                        Err(ShimmyError::WorkflowStepNotFound {
+                            step_id: step_id.to_string(),
+                        })
                     }
                 } else {
-                    Err(anyhow::anyhow!("Variable {} not found", expression))
+                    Err(ShimmyError::WorkflowVariableNotFound {
+                        variable: expression.to_string(),
+                    })
                 }
             }
             "filter" => {
                 // Simple filtering - would be expanded with a proper expression evaluator
                 Ok(serde_json::json!({ "filtered": true, "expression": expression }))
             }
-            _ => Err(anyhow::anyhow!("Unsupported data transform operation: {}", operation)),
+            _ => Err(ShimmyError::UnsupportedOperation {
+                operation: operation.to_string(),
+            }),
         }
     }
 
@@ -343,10 +396,10 @@ impl WorkflowEngine {
             if parts.len() == 2 {
                 let left = parts[0].trim();
                 let right = parts[1].trim();
-                
+
                 let left_value = context.get(left);
                 let right_str = right.trim_matches('"');
-                
+
                 match left_value {
                     Some(serde_json::Value::String(s)) => Ok(s == right_str),
                     Some(serde_json::Value::Bool(b)) => Ok(b.to_string() == right_str),
@@ -370,8 +423,10 @@ impl WorkflowEngine {
     ) -> Result<String> {
         // This would integrate with the actual LLM generation system
         // For now, return a placeholder
-        Ok(format!("LLM response to: {} (model: {}, max_tokens: {}, temp: {})", 
-                  prompt, model, max_tokens, temperature))
+        Ok(format!(
+            "LLM response to: {} (model: {}, max_tokens: {}, temp: {})",
+            prompt, model, max_tokens, temperature
+        ))
     }
 }
 
@@ -430,6 +485,196 @@ mod tests {
         ];
         let result = engine.calculate_execution_order(&steps);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Circular dependency"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Circular dependency"));
+    }
+
+    #[test]
+    fn test_substitute_variables_with_values() {
+        let engine = WorkflowEngine::new(ToolRegistry::new());
+        let mut variables = HashMap::new();
+        variables.insert("name".to_string(), serde_json::json!("Alice"));
+        variables.insert("count".to_string(), serde_json::json!(42));
+
+        let result = engine
+            .substitute_variables("Hello {{name}}, count is {{count}}", &variables)
+            .unwrap();
+        assert_eq!(result, "Hello Alice, count is 42");
+    }
+
+    #[test]
+    fn test_substitute_variables_unknown_placeholder_preserved() {
+        let engine = WorkflowEngine::new(ToolRegistry::new());
+        let variables = HashMap::new();
+        let result = engine
+            .substitute_variables("Hello {{unknown}}", &variables)
+            .unwrap();
+        // Unresolved placeholders stay as-is
+        assert_eq!(result, "Hello {{unknown}}");
+    }
+
+    #[tokio::test]
+    async fn test_execute_workflow_data_transform_extract() {
+        let engine = WorkflowEngine::new(ToolRegistry::new());
+
+        let mut inputs = HashMap::new();
+        inputs.insert("greeting".to_string(), serde_json::json!("hello world"));
+
+        let request = WorkflowRequest {
+            workflow: Workflow {
+                id: "test-wf".to_string(),
+                name: "Test Workflow".to_string(),
+                description: "Unit test workflow".to_string(),
+                steps: vec![WorkflowStep {
+                    id: "extract_step".to_string(),
+                    step_type: WorkflowStepType::DataTransform {
+                        operation: "extract".to_string(),
+                        expression: "greeting".to_string(),
+                    },
+                    depends_on: vec![],
+                    parameters: serde_json::Value::Null,
+                }],
+                inputs,
+                outputs: vec!["extract_step".to_string()],
+            },
+            context: HashMap::new(),
+        };
+
+        let result = engine.execute_workflow(request).await.unwrap();
+        assert!(result.success);
+        assert_eq!(result.workflow_id, "test-wf");
+        assert_eq!(
+            result.outputs["extract_step"],
+            serde_json::json!("hello world")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_execute_workflow_missing_output_step() {
+        let engine = WorkflowEngine::new(ToolRegistry::new());
+
+        let request = WorkflowRequest {
+            workflow: Workflow {
+                id: "wf-missing".to_string(),
+                name: "Missing output".to_string(),
+                description: "Test missing output step".to_string(),
+                steps: vec![],
+                inputs: HashMap::new(),
+                outputs: vec!["nonexistent_step".to_string()],
+            },
+            context: HashMap::new(),
+        };
+
+        let result = engine.execute_workflow(request).await.unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Missing output steps"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_workflow_data_transform_filter() {
+        let engine = WorkflowEngine::new(ToolRegistry::new());
+
+        let request = WorkflowRequest {
+            workflow: Workflow {
+                id: "filter-wf".to_string(),
+                name: "Filter Workflow".to_string(),
+                description: "Test filter operation".to_string(),
+                steps: vec![WorkflowStep {
+                    id: "filter_step".to_string(),
+                    step_type: WorkflowStepType::DataTransform {
+                        operation: "filter".to_string(),
+                        expression: "x > 5".to_string(),
+                    },
+                    depends_on: vec![],
+                    parameters: serde_json::Value::Null,
+                }],
+                inputs: HashMap::new(),
+                outputs: vec!["filter_step".to_string()],
+            },
+            context: HashMap::new(),
+        };
+
+        let result = engine.execute_workflow(request).await.unwrap();
+        assert!(result.success);
+        assert!(result.step_results["filter_step"].success);
+    }
+
+    #[tokio::test]
+    async fn test_execute_workflow_unsupported_operation_marks_step_failed() {
+        let engine = WorkflowEngine::new(ToolRegistry::new());
+
+        let request = WorkflowRequest {
+            workflow: Workflow {
+                id: "bad-op-wf".to_string(),
+                name: "Bad op".to_string(),
+                description: "Test unsupported operation".to_string(),
+                steps: vec![WorkflowStep {
+                    id: "bad_step".to_string(),
+                    step_type: WorkflowStepType::DataTransform {
+                        operation: "nonexistent_op".to_string(),
+                        expression: "anything".to_string(),
+                    },
+                    depends_on: vec![],
+                    parameters: serde_json::Value::Null,
+                }],
+                inputs: HashMap::new(),
+                outputs: vec!["bad_step".to_string()],
+            },
+            context: HashMap::new(),
+        };
+
+        let result = engine.execute_workflow(request).await.unwrap();
+        // Step fails due to unsupported operation
+        assert!(!result.step_results["bad_step"].success);
+    }
+
+    #[tokio::test]
+    async fn test_execute_workflow_calculate_order_linear_chain() {
+        let engine = WorkflowEngine::new(ToolRegistry::new());
+
+        let mut inputs = HashMap::new();
+        inputs.insert("data".to_string(), serde_json::json!("value"));
+
+        let request = WorkflowRequest {
+            workflow: Workflow {
+                id: "chain-wf".to_string(),
+                name: "Chain Workflow".to_string(),
+                description: "Two steps in order".to_string(),
+                steps: vec![
+                    WorkflowStep {
+                        id: "step_a".to_string(),
+                        step_type: WorkflowStepType::DataTransform {
+                            operation: "extract".to_string(),
+                            expression: "data".to_string(),
+                        },
+                        depends_on: vec![],
+                        parameters: serde_json::Value::Null,
+                    },
+                    WorkflowStep {
+                        id: "step_b".to_string(),
+                        step_type: WorkflowStepType::DataTransform {
+                            operation: "extract".to_string(),
+                            expression: "step_step_a".to_string(),
+                        },
+                        depends_on: vec!["step_a".to_string()],
+                        parameters: serde_json::Value::Null,
+                    },
+                ],
+                inputs,
+                outputs: vec!["step_b".to_string()],
+            },
+            context: HashMap::new(),
+        };
+
+        let result = engine.execute_workflow(request).await.unwrap();
+        // Both steps should have run
+        assert!(result.step_results.contains_key("step_a"));
+        assert!(result.step_results.contains_key("step_b"));
     }
 }

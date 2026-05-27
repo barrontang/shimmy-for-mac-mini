@@ -3,11 +3,14 @@
 ## Infrastructure Partners ($500+/month)
 *Your logo could be here*
 
-## Corporate Backers ($100+/month)  
+## Corporate Backers ($100+/month)
 *Your logo could be here*
 
-## Individual Heroes ($5+/month)
-*Be the first!*
+## Bug Prioritizers ($25+/month)
+- **[Omar McIver](https://github.com/omarmciver)** - Priority support + featured sponsor
+
+## Coffee Tier Heroes ($5+/month)
+*Your support could be here*
 
 ---
 

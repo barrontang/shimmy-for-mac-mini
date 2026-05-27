@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for Shimmy - optimized for cloud deployment
-FROM rust:1.70-slim as builder
+FROM rust:slim AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -10,8 +10,19 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Cargo still resolves the optional airframe path dependency during metadata checks,
+# so create a minimal local placeholder to keep the Docker build self-contained.
+RUN mkdir -p /airframe/src && \
+    printf '[package]\nname = "airframe"\nversion = "0.0.1"\nedition = "2021"\n\n[lib]\npath = "src/lib.rs"\n' > /airframe/Cargo.toml && \
+    printf 'pub fn _placeholder() {}\n' > /airframe/src/lib.rs
+
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./
+
+# Cargo parses bench targets from manifest and src compiles templates via include_str!.
+COPY benches ./benches
+COPY templates ./templates
 
 # Copy source code
 COPY src ./src

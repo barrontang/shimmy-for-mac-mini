@@ -1,32 +1,37 @@
 #![allow(dead_code)]
 
-use anyhow::{anyhow, Result};
+use crate::error::{Result, ShimmyError};
 use safetensors::SafeTensors;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
 /// Convert SafeTensors LoRA adapter to a temporary GGUF file that llama.cpp can load
 pub fn convert_safetensors_to_gguf(safetensors_path: &Path) -> Result<PathBuf> {
     info!(path=%safetensors_path.display(), "Converting SafeTensors LoRA to GGUF format");
-    
+
     // Read the SafeTensors file
     let data = fs::read(safetensors_path)?;
-    let tensors = SafeTensors::deserialize(&data)?;
-    
+    let tensors = SafeTensors::deserialize(&data).map_err(|e| ShimmyError::GenerationError {
+        reason: format!("Failed to deserialize SafeTensors: {}", e),
+    })?;
+
     debug!("SafeTensors contains {} tensors", tensors.len());
-    
-    let safetensors_dir = safetensors_path.parent()
-        .ok_or_else(|| anyhow!("Invalid SafeTensors path"))?;
-    
+
+    let safetensors_dir = safetensors_path
+        .parent()
+        .ok_or_else(|| ShimmyError::InvalidPath {
+            path: safetensors_path.display().to_string(),
+        })?;
+
     // Look for adapter_model.gguf in the same directory
     let gguf_path = safetensors_dir.join("adapter_model.gguf");
     if gguf_path.exists() {
         info!(path=%gguf_path.display(), "Found existing GGUF adapter");
         return Ok(gguf_path);
     }
-    
+
     // Look for any .gguf file in the same directory
     if let Ok(entries) = fs::read_dir(safetensors_dir) {
         for entry in entries.flatten() {
@@ -37,19 +42,19 @@ pub fn convert_safetensors_to_gguf(safetensors_path: &Path) -> Result<PathBuf> {
             }
         }
     }
-    
+
     // Try to find llama.cpp conversion script
     let possible_conversion_scripts = [
         "convert-lora-to-ggml.py",
-        "convert_lora_to_ggml.py", 
+        "convert_lora_to_ggml.py",
         "convert-hf-to-gguf.py",
-        "convert_hf_to_gguf.py"
+        "convert_hf_to_gguf.py",
     ];
-    
+
     for script_name in &possible_conversion_scripts {
         if let Some(script_path) = find_llama_cpp_script(script_name) {
             info!(script=%script_path.display(), "Found conversion script, attempting conversion");
-            
+
             match run_conversion_script(&script_path, safetensors_path, &gguf_path) {
                 Ok(_) => {
                     if gguf_path.exists() {
@@ -63,28 +68,27 @@ pub fn convert_safetensors_to_gguf(safetensors_path: &Path) -> Result<PathBuf> {
             }
         }
     }
-    
+
     // Try to create a temporary GGUF file with a simple format conversion
     // This is a simplified approach - in a full implementation, we'd need to properly
     // convert the tensor formats and metadata
     warn!("No llama.cpp conversion scripts found, providing guidance");
-    
-    Err(anyhow!(
-        "SafeTensors to GGUF conversion needed for: {}\n\
-        \n\
-        Shimmy detected a SafeTensors LoRA adapter but requires GGUF format.\n\
-        \n\
-        To enable this adapter:\n\
-        1. Install llama.cpp with Python bindings\n\
-        2. Run conversion: python /path/to/llama.cpp/convert-lora-to-ggml.py {} {}\n\
-        3. Or place a pre-converted .gguf file in: {}\n\
-        \n\
-        This is the shim functionality - shimmy bridges SafeTensors adapters to GGUF-based inference.",
-        safetensors_path.display(),
-        safetensors_path.display(),
-        gguf_path.display(),
-        safetensors_dir.display()
-    ))
+
+    Err(ShimmyError::SafeTensorsConversionNeeded {
+        guidance: format!(
+            "SafeTensors to GGUF conversion needed for: {}\n\n\
+            Shimmy detected a SafeTensors LoRA adapter but requires GGUF format.\n\n\
+            To enable this adapter:\n\
+            1. Install llama.cpp with Python bindings\n\
+            2. Run conversion: python /path/to/llama.cpp/convert-lora-to-ggml.py {} {}\n\
+            3. Or place a pre-converted .gguf file in: {}\n\n\
+            This is the shim functionality - shimmy bridges SafeTensors adapters to GGUF-based inference.",
+            safetensors_path.display(),
+            safetensors_path.display(),
+            gguf_path.display(),
+            safetensors_dir.display()
+        )
+    })
 }
 
 fn find_llama_cpp_script(script_name: &str) -> Option<PathBuf> {
@@ -98,14 +102,14 @@ fn find_llama_cpp_script(script_name: &str) -> Option<PathBuf> {
         format!("C:/llama.cpp/{}", script_name),
         format!("C:/Users/*/llama.cpp/{}", script_name),
     ];
-    
+
     for path in &possible_paths {
         let p = PathBuf::from(path);
         if p.exists() {
             return Some(p);
         }
     }
-    
+
     // Try to find it in PATH
     if let Ok(output) = Command::new("which").arg(script_name).output() {
         if output.status.success() {
@@ -117,26 +121,31 @@ fn find_llama_cpp_script(script_name: &str) -> Option<PathBuf> {
             }
         }
     }
-    
+
     None
 }
 
 fn run_conversion_script(script_path: &Path, input_path: &Path, output_path: &Path) -> Result<()> {
-    info!(script=%script_path.display(), input=%input_path.display(), output=%output_path.display(), 
+    info!(script=%script_path.display(), input=%input_path.display(), output=%output_path.display(),
           "Running LoRA conversion script");
-    
+
     let output = Command::new("python")
         .arg(script_path)
         .arg(input_path)
         .arg(output_path)
         .output()
-        .map_err(|e| anyhow!("Failed to run conversion script: {}", e))?;
-    
+        .map_err(|e| ShimmyError::ScriptExecutionFailed {
+            script: script_path.display().to_string(),
+            source: Some(e.into()),
+        })?;
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("Conversion script failed: {}", stderr));
+        return Err(ShimmyError::ProcessFailed {
+            stderr: stderr.to_string(),
+        });
     }
-    
+
     Ok(())
 }
 
@@ -174,11 +183,11 @@ mod tests {
     fn test_convert_safetensors_to_gguf_invalid_safetensors() {
         let temp_dir = TempDir::new().unwrap();
         let safetensors_path = temp_dir.path().join("invalid.safetensors");
-        
+
         // Create an invalid safetensors file
         let mut file = fs::File::create(&safetensors_path).unwrap();
         writeln!(file, "invalid safetensors data").unwrap();
-        
+
         let result = convert_safetensors_to_gguf(&safetensors_path);
         assert!(result.is_err());
     }
@@ -188,14 +197,14 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let safetensors_path = temp_dir.path().join("adapter.safetensors");
         let gguf_path = temp_dir.path().join("adapter_model.gguf");
-        
+
         // Create a minimal valid safetensors file
         let data = create_minimal_safetensors();
         fs::write(&safetensors_path, &data).unwrap();
-        
+
         // Create existing adapter_model.gguf
         fs::write(&gguf_path, b"fake gguf data").unwrap();
-        
+
         let result = convert_safetensors_to_gguf(&safetensors_path);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), gguf_path);
@@ -206,14 +215,14 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let safetensors_path = temp_dir.path().join("adapter.safetensors");
         let gguf_path = temp_dir.path().join("some_model.gguf");
-        
+
         // Create a minimal valid safetensors file
         let data = create_minimal_safetensors();
         fs::write(&safetensors_path, &data).unwrap();
-        
+
         // Create existing .gguf file
         fs::write(&gguf_path, b"fake gguf data").unwrap();
-        
+
         let result = convert_safetensors_to_gguf(&safetensors_path);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), gguf_path);
@@ -223,15 +232,15 @@ mod tests {
     fn test_convert_safetensors_to_gguf_no_existing_gguf() {
         let temp_dir = TempDir::new().unwrap();
         let safetensors_path = temp_dir.path().join("adapter.safetensors");
-        
+
         // Create a minimal valid safetensors file
         let data = create_minimal_safetensors();
         fs::write(&safetensors_path, &data).unwrap();
-        
+
         // No existing GGUF files
         let result = convert_safetensors_to_gguf(&safetensors_path);
         assert!(result.is_err());
-        
+
         // Should contain helpful error message
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("SafeTensors to GGUF conversion needed"));
@@ -256,7 +265,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let script_path = temp_dir.path().join("convert-lora-to-ggml.py");
         fs::write(&script_path, b"#!/usr/bin/env python\nprint('test')").unwrap();
-        
+
         // This test checks the logic but won't find the temp file since it's not in the hardcoded paths
         // The real test is that the function doesn't crash with various inputs
         let result = find_llama_cpp_script("convert-lora-to-ggml.py");
@@ -271,10 +280,10 @@ mod tests {
         let script_path = temp_dir.path().join("script.py");
         let input_path = temp_dir.path().join("input.safetensors");
         let output_path = temp_dir.path().join("output.gguf");
-        
+
         fs::write(&script_path, b"print('test')").unwrap();
         fs::write(&input_path, b"fake input").unwrap();
-        
+
         // This should fail since python command might not exist or script will fail
         let result = run_conversion_script(&script_path, &input_path, &output_path);
         // In most environments this will fail, which is expected behavior
@@ -285,13 +294,13 @@ mod tests {
     fn test_safetensors_deserialization_error_handling() {
         let temp_dir = TempDir::new().unwrap();
         let safetensors_path = temp_dir.path().join("corrupt.safetensors");
-        
+
         // Create a file with invalid safetensors format
         fs::write(&safetensors_path, b"not valid safetensors format").unwrap();
-        
+
         let result = convert_safetensors_to_gguf(&safetensors_path);
         assert!(result.is_err());
-        
+
         // Error should be related to deserialization
         let error_msg = result.unwrap_err().to_string();
         // The actual error message will come from safetensors library
@@ -302,11 +311,11 @@ mod tests {
     fn test_directory_read_error_handling() {
         let temp_dir = TempDir::new().unwrap();
         let safetensors_path = temp_dir.path().join("adapter.safetensors");
-        
+
         // Create a minimal valid safetensors file
         let data = create_minimal_safetensors();
         fs::write(&safetensors_path, &data).unwrap();
-        
+
         // Remove the temp directory to simulate read error (this is tricky to test)
         // Instead, we'll test with a valid directory but no GGUF files
         let result = convert_safetensors_to_gguf(&safetensors_path);
@@ -319,18 +328,18 @@ mod tests {
         let safetensors_path = temp_dir.path().join("adapter.safetensors");
         let gguf_path1 = temp_dir.path().join("model1.gguf");
         let gguf_path2 = temp_dir.path().join("model2.gguf");
-        
+
         // Create a minimal valid safetensors file
         let data = create_minimal_safetensors();
         fs::write(&safetensors_path, &data).unwrap();
-        
+
         // Create multiple GGUF files
         fs::write(&gguf_path1, b"fake gguf data 1").unwrap();
         fs::write(&gguf_path2, b"fake gguf data 2").unwrap();
-        
+
         let result = convert_safetensors_to_gguf(&safetensors_path);
         assert!(result.is_ok());
-        
+
         // Should return one of the GGUF files (order may vary)
         let returned_path = result.unwrap();
         assert!(returned_path == gguf_path1 || returned_path == gguf_path2);
@@ -344,14 +353,14 @@ mod tests {
         let metadata = r#"{"test_tensor":{"dtype":"F32","shape":[1,1],"data_offsets":[0,4]}}"#;
         let metadata_bytes = metadata.as_bytes();
         let metadata_len = metadata_bytes.len() as u64;
-        
+
         let mut data = Vec::new();
         data.extend_from_slice(&metadata_len.to_le_bytes());
         data.extend_from_slice(metadata_bytes);
-        
+
         // Add minimal tensor data (4 bytes for a single F32)
         data.extend_from_slice(&[0u8, 0u8, 0u8, 0u8]);
-        
+
         data
     }
 }

@@ -1,38 +1,46 @@
 [package]
 name = "shimmy"
-version = "1.3.0"
+version = "2.0.1"
 edition = "2021"
 license = "MIT"
-description = "Lightweight Ollama alternative optimized for Mac Mini with native SafeTensors support. No Python dependencies, fast loading."
+description = "Mac Mini-optimized fork of Shimmy: lightweight Ollama-compatible inference server with native SafeTensors support. No Python dependencies, cross-platform WebGPU acceleration via Airframe."
 homepage = "https://github.com/barrontang/shimmy-for-mac-mini"
 repository = "https://github.com/barrontang/shimmy-for-mac-mini"
 readme = "README.md"
 keywords = ["llm", "local-ai", "inference", "server", "api"]
 categories = ["command-line-utilities", "web-programming::http-server"]
-authors = ["Barron Tang"]
-exclude = [
-    "docs-internal/*",
-    "test-models/*",
-    "target/*",
-    ".*",
-    "*.sh",
-    "*.ps1",
-    "*.py"
+authors = ["Barron Tang", "Michael A. Kuykendall <michaelallenkuykendall@gmail.com>"]
+include = [
+    "src/**/*",
+    "templates/**/*",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "LICENSE",
+    "build.rs"
 ]
+publish = true
 
 [features]
-default = ["huggingface", "llama"]
-# Engine backends  
-llama = ["dep:llama-cpp-2"]
+default = ["airframe", "huggingface"]  # Full GPU build; use --no-default-features --features huggingface for CPU-only
+# Engine backends
+airframe = ["dep:airframe"]  # Airframe native GPU engine
 huggingface = [] # Python integration, no additional Rust deps
+mlx = [] # Apple MLX integration for Metal GPU acceleration on Apple Silicon
 # Convenience feature sets
-fast = ["huggingface"] # Fast compilation - no C++ deps
-full = ["huggingface", "llama"] # Full compilation - includes C++ deps
-coverage = ["huggingface"] # Coverage testing - minimal deps for faster builds
+fast = ["huggingface"] # Fast compilation - no path deps (CI-safe)
+full = ["airframe", "huggingface", "mlx"] # Full compilation - includes all backends
+gpu = ["airframe", "huggingface"] # GPU-optimized build via Airframe
+apple = ["airframe", "huggingface"] # Apple Silicon - Airframe via Metal + HuggingFace
+coverage = ["huggingface"] # Coverage testing - no path deps, fast compile
+llama = [] # Deprecated: llama.cpp removed in v2.0. Empty feature retained to silence cfg guards pending cleanup.
+llama-cuda = [] # Deprecated: llama.cpp CUDA backend removed in v2.0.
+llama-vulkan = [] # Deprecated: llama.cpp Vulkan backend removed in v2.0.
+llama-opencl = [] # Deprecated: llama.cpp OpenCL backend removed in v2.0.
 
 [dependencies]
 anyhow = "1"
-axum = { version = "0.7", features = ["http1","json","ws"] }
+axum = { version = "0.7", features = ["http1", "json", "ws", "macros"] }
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -43,6 +51,7 @@ memmap2 = "0.9"
 minijinja = { version = "2", features = ["loader"] }
 parking_lot = "0.12"
 rand = "0.8"
+regex = "1"
 safetensors = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -50,21 +59,27 @@ sys-info = "0.9"
 sysinfo = "0.30"
 tempfile = "3"
 thiserror = "1"
-tokio = { version = "1", features = ["macros","rt-multi-thread","signal","process"] }
+tokio = { version = "1", features = ["macros","rt-multi-thread","signal","process","fs"] }
 tokio-stream = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+dirs = "5.0"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 
-# llama.cpp bindings (optional)
-llama-cpp-2 = { version = "0.1.118", optional = true, default-features = false }
+# Airframe native GPU inference — public crate on crates.io
+airframe = { version = "0.1", optional = true }
 
 [dev-dependencies]
-reqwest = { version = "0.11", features = ["json"] }
 tokio-tungstenite = "0.20"
+criterion = { version = "0.5", features = ["html_reports"] }
+serial_test = "3.1"  # For serialized test execution
 # Additional dependencies for mock testing infrastructure
 tempfile = "3"  # For creating temporary test directories
 rand = "0.8"    # For randomized testing scenarios (already in main deps)
+assert_cmd = "2"  # For CLI testing
+predicates = "3"  # For assertion predicates in tests
+tower = { version = "0.5", features = ["util"] }  # For test oneshot helper
 # Note: tempfile is already in main dependencies, rand is already in main dependencies
 
 [profile.release]
@@ -81,3 +96,15 @@ debug = true
 [profile.dev.package."*"]
 opt-level = 2
 debug = false
+
+# Benchmark configuration  
+[[bench]]
+name = "model_loading"
+harness = false
+
+[[bench]]
+name = "generation_performance"
+harness = false
+
+[workspace]
+

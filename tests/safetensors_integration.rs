@@ -2,7 +2,6 @@
 // Generated at: 2025-09-10 14:29:22
 // Rules matched: 2 test patterns
 
-use std::path::Path;
 use shimmy::test_utils::create_test_safetensors;
 
 #[cfg(test)]
@@ -12,9 +11,16 @@ mod tests {
     // Rule: rust_result_err - Functions returning Result need Err case tests
     #[test]
     fn create_test_safetensors_error_case() {
-        // Test error case handling with invalid path
-        let result = create_test_safetensors("/nonexistent/path/test.safetensors", &[]);
-        assert!(result.is_err(), "Function should return Err for invalid path");
+        // Test error case handling with nonexistent parent directory
+        // Use a path that definitely won't exist on any system
+        let result = create_test_safetensors(
+            "/this/path/absolutely/does/not/exist/anywhere/test.safetensors",
+            &[],
+        );
+        assert!(
+            result.is_err(),
+            "Function should return Err for path with nonexistent parent directory"
+        );
     }
 
     // Rule: rust_empty_str - Functions accepting &str need empty string tests

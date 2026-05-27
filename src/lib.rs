@@ -1,3 +1,7 @@
+// Suppress function pointer comparison warnings from auto-generated bindings
+#![allow(unpredictable_function_pointer_comparisons)]
+
+pub mod anthropic_compat;
 pub mod api;
 pub mod api_errors;
 pub mod auto_discovery;
@@ -6,10 +10,10 @@ pub mod cli;
 pub mod discovery;
 pub mod engine;
 pub mod error;
-pub mod main_integration;
 pub mod metrics;
 pub mod model_manager;
 pub mod model_registry;
+pub mod observability;
 pub mod openai_compat;
 pub mod port_manager;
 pub mod rustchain_compat;
@@ -19,9 +23,10 @@ pub mod templates;
 pub mod tools;
 pub mod util {
     pub mod diag;
+    pub mod memory;
 }
-pub mod workflow;
 pub mod invariant_ppt;
+pub mod workflow;
 
 #[cfg(test)]
 pub mod tests;
@@ -34,4 +39,20 @@ pub mod test_utils;
 pub struct AppState {
     pub engine: Box<dyn engine::InferenceEngine>,
     pub registry: model_registry::Registry,
+    pub observability: observability::ObservabilityManager,
+    pub response_cache: cache::ResponseCache,
+}
+
+impl AppState {
+    pub fn new(
+        engine: Box<dyn engine::InferenceEngine>,
+        registry: model_registry::Registry,
+    ) -> Self {
+        Self {
+            engine,
+            registry,
+            observability: observability::ObservabilityManager::new(),
+            response_cache: cache::ResponseCache::new(),
+        }
+    }
 }

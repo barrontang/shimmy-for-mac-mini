@@ -19,37 +19,35 @@ impl Default for HuggingFaceEngine {
 
 impl HuggingFaceEngine {
     pub fn new() -> Self {
-        // Use platform-appropriate python path
-        let python_path = if cfg!(target_os = "windows") {
-            "C:/Python311/python.exe".to_string()
-        } else {
-            // macOS/Linux: check python3 then python
-            if std::process::Command::new("python3").arg("--version").output().is_ok() {
-                "python3".to_string()
-            } else {
-                "python".to_string()
-            }
-        };
-        Self { python_path }
+        // Use the verified Python path from CLAUDE.md
+        Self {
+            python_path: "C:/Python311/python.exe".to_string(),
+        }
     }
-    
 }
 
 #[async_trait]
 impl UniversalEngine for HuggingFaceEngine {
     async fn load(&self, spec: &UniversalModelSpec) -> Result<Box<dyn UniversalModel>> {
         match &spec.backend {
-            ModelBackend::HuggingFace { base_model_id, peft_path, use_local } => {
+            ModelBackend::HuggingFace {
+                base_model_id,
+                peft_path,
+                use_local,
+            } => {
                 let model = HuggingFaceModel::load(
                     &self.python_path,
                     base_model_id,
                     peft_path.as_deref(),
                     *use_local,
                     &spec.device,
-                ).await?;
+                )
+                .await?;
                 Ok(Box::new(model))
             }
-            _ => Err(anyhow!("HuggingFaceEngine only supports HuggingFace backend")),
+            _ => Err(anyhow!(
+                "HuggingFaceEngine only supports HuggingFace backend"
+            )),
         }
     }
 }
@@ -94,9 +92,9 @@ import sys
 try:
     print("Loading base model...", file=sys.stderr)
     model = AutoModelForCausalLM.from_pretrained('{}', torch_dtype=torch.float16)
-    
+
     {}
-    
+
     print("SUCCESS: Model loaded", file=sys.stderr)
     print("OK")
 except Exception as e:
@@ -117,9 +115,7 @@ except Exception as e:
             ),
         ];
 
-        let verify_output = Command::new(python_path)
-            .args(&verify_cmd)
-            .output()?;
+        let verify_output = Command::new(python_path).args(&verify_cmd).output()?;
 
         if !verify_output.status.success() {
             return Err(anyhow!(
@@ -239,7 +235,7 @@ model = PeftModel.from_pretrained(model, '{}')"#,
 
         let result = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = result.lines().collect();
-        
+
         // Find the actual generated text (after loading messages)
         let generated_text = lines
             .iter()
@@ -262,24 +258,18 @@ model = PeftModel.from_pretrained(model, '{}')"#,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::{ModelBackend, UniversalModelSpec, GenOptions};
+    use crate::engine::{GenOptions, ModelBackend, UniversalModelSpec};
 
     #[test]
     fn test_default_creates_new_instance() {
         let engine = HuggingFaceEngine::default();
-        // python_path is platform-dependent
-        assert!(!engine.python_path.is_empty());
+        assert_eq!(engine.python_path, "C:/Python311/python.exe");
     }
 
     #[test]
     fn test_new_creates_with_correct_python_path() {
         let engine = HuggingFaceEngine::new();
-        // On Windows uses C:/Python311/python.exe, on other platforms uses python3 or python
-        if cfg!(target_os = "windows") {
-            assert_eq!(engine.python_path, "C:/Python311/python.exe");
-        } else {
-            assert!(engine.python_path == "python3" || engine.python_path == "python");
-        }
+        assert_eq!(engine.python_path, "C:/Python311/python.exe");
     }
 
     #[tokio::test]
@@ -293,7 +283,7 @@ mod tests {
             },
             device: "cpu".to_string(),
             template: None,
-            ctx_len: 4096,
+            ctx_len: 2048,
             n_threads: None,
         };
 
@@ -317,24 +307,28 @@ mod tests {
             },
             device: "cpu".to_string(),
             template: None,
-            ctx_len: 4096,
+            ctx_len: 2048,
             n_threads: None,
         };
 
         // This will fail if Python isn't available, but tests the error path
         let result = engine.load(&spec).await;
-        // Either succeeds or fails with Python dependency error or IO error (python not found)
+        // Either succeeds or fails with Python dependency error or path not found error
         if let Err(e) = result {
             let error_msg = format!("{}", e);
-            // Accept any error: Python not found (IO), missing deps, or model load failure
             assert!(
                 error_msg.contains("Python dependencies")
                     || error_msg.contains("Failed to load HuggingFace model")
-                    || error_msg.contains("os error")
+                    || error_msg.contains("Failed to initialize")
+                    || error_msg.contains("cannot find the path")
+                    || error_msg.contains("os error 3")
+                    || error_msg.contains("os error 2")  // No such file or directory
                     || error_msg.contains("No such file")
                     || error_msg.contains("not found")
-                    || error_msg.contains("cannot find"),
-                "Unexpected error: {}", error_msg
+                    || error_msg.contains("The system cannot find")
+                    || error_msg.contains("command not found")
+                    || error_msg.contains("Access is denied")
+                    || error_msg.contains("Permission denied")
             );
         }
     }
@@ -362,7 +356,8 @@ mod tests {
             None,
             true,
             "cpu",
-        ).await;
+        )
+        .await;
 
         assert!(result.is_err());
     }
@@ -378,6 +373,7 @@ mod tests {
             repeat_penalty: 1.1,
             seed: Some(42),
             stream: false,
+            stop_tokens: Vec::new(),
         };
 
         assert_eq!(opts.max_tokens, 100);
@@ -393,7 +389,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_workflow_error_cases() {
         let engine = HuggingFaceEngine::new();
-        
+
         // Test 1: Unsupported backend
         let wrong_backend_spec = UniversalModelSpec {
             name: "test_model".to_string(),
@@ -403,10 +399,10 @@ mod tests {
             },
             device: "cpu".to_string(),
             template: None,
-            ctx_len: 4096,
+            ctx_len: 2048,
             n_threads: None,
         };
-        
+
         let result = engine.load(&wrong_backend_spec).await;
         assert!(result.is_err());
 
@@ -420,10 +416,10 @@ mod tests {
             },
             device: "cpu".to_string(),
             template: None,
-            ctx_len: 4096,
+            ctx_len: 2048,
             n_threads: None,
         };
-        
+
         let result = engine.load(&valid_spec).await;
         // Should error due to missing Python deps or invalid model
         assert!(result.is_err());
