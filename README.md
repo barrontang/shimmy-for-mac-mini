@@ -1,9 +1,11 @@
 <div align="center">
   <img src="assets/shimmy-logo.png" alt="Shimmy Logo" width="300" height="auto" />
 
-  # The Lightweight OpenAI API Server
+  # Shimmy for Mac Mini
 
-  ### 🔒 Local Inference Without Dependencies 🚀
+  ### 🔒 Local Inference Without Dependencies — Mac Mini-Optimized Fork 🚀
+
+  > **A Mac Mini-optimized fork of [Shimmy](https://github.com/Michael-A-Kuykendall/shimmy)** by Michael A. Kuykendall, kept in sync with upstream.
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Security](https://img.shields.io/badge/Security-Audited-green)](https://github.com/Michael-A-Kuykendall/shimmy/security)

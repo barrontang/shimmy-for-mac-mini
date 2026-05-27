@@ -3,13 +3,13 @@ name = "shimmy"
 version = "2.0.1"
 edition = "2021"
 license = "MIT"
-description = "Lightweight Ollama-compatible inference server with native SafeTensors support. No Python dependencies, cross-platform WebGPU acceleration via Airframe."
-homepage = "https://github.com/Michael-A-Kuykendall/shimmy"
-repository = "https://github.com/Michael-A-Kuykendall/shimmy"
+description = "Mac Mini-optimized fork of Shimmy: lightweight Ollama-compatible inference server with native SafeTensors support. No Python dependencies, cross-platform WebGPU acceleration via Airframe."
+homepage = "https://github.com/barrontang/shimmy-for-mac-mini"
+repository = "https://github.com/barrontang/shimmy-for-mac-mini"
 readme = "README.md"
 keywords = ["llm", "local-ai", "inference", "server", "api"]
 categories = ["command-line-utilities", "web-programming::http-server"]
-authors = ["Michael A. Kuykendall <michaelallenkuykendall@gmail.com>"]
+authors = ["Barron Tang", "Michael A. Kuykendall <michaelallenkuykendall@gmail.com>"]
 include = [
     "src/**/*",
     "templates/**/*",
