@@ -5,7 +5,56 @@ All notable changes to Shimmy will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.1] - 2026-06-30
+
+### Fixed
+- **CI regression test cleanup** — Removed stale llama-era, MLX, and release-gate tests (17+ files, ~4500 lines). All CI test targets updated to use `--features airframe,huggingface` defaults.
+- **Workflow consolidation** — Deleted 3 dead workflows (release-dry-run, test-release-binaries, version-validation). Release.yml rewritten from 373 to 66 lines as a clean matrix build.
+- **Quality gate fixes** — Binary size test now uses debug+strip instead of slow release build. Variable expansion bug in quality gate fixed. MLX test no longer asserts x86_64-apple-darwin platform.
+
+### Changed
+- Airframe dependency updated to 0.2.8.
+
+---
+
+## [2.2.0] - 2026-06-09
+
+### Fixed
+- **Multi-architecture model loading** — Qwen3, Qwen2, Gemma-2, Phi-3 family models now
+  load correctly via airframe 0.2.2. Previously these architectures silently failed due
+  to a hardcoded Llama key prefix in the GGUF metadata parser.
+- **Qwen3 tied embeddings** — Qwen3 models that share output.weight with token_embd.weight
+  now load and run correctly.
+- **Context cap safety** — Large-context models (Qwen2-7B n_ctx=32768) no longer cause
+  memory exhaustion on CPU oracle generation paths.
+
+### Changed
+- Airframe dependency updated to 0.2.2.
+- Shimmy version bumped to 2.2.0.
+
+---
+
+## [2.1.0] - 2026-06-02
+
+### Added
+- **TurboShimmy INT4 KV cache** — per-head-vector INT4 compression for KV buffers,
+  cutting KV VRAM usage ~7× with no measured retrieval loss. Enable via
+  `SHIMMY_KV_QUANT=int4`. See airframe 0.2.0 release notes.
+
+### Fixed
+- **wgpu 27 staging-buffer panic on GTX 1050 Ti and similar older GPUs** (issue #205,
+  reported by @Kuntey). Upgraded to airframe 0.2.1, which fixes `max_buffer_size`
+  being incorrectly capped to `max_storage_buffer_binding_size`. On some older GPU/driver
+  stacks these limits differ, causing a deferred validation error that wgpu 27 surfaced as
+  a cryptic "Staging Buffer is invalid" panic. A pre-flight size guard now returns a clear
+  error message if the model exceeds the GPU's binding limit.
+- Removed spurious `WARNING: Missing Norm Tensor post_attention_norm/post_ffw_norm` log
+  spam for Llama, Mistral, Phi and Qwen models. These tensors are Gemma-only.
+
+### Changed
+- Airframe dependency updated to 0.2.1.
+
+---
 
 ## [2.0.0] - 2026-05-26
 
