@@ -4,6 +4,9 @@ on:
   push:
     tags: [v*]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build (${{ matrix.target }})
@@ -23,6 +26,8 @@ jobs:
             binary: shimmy
             artifact: shimmy-macos-arm64
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v5
     - name: Install Rust
@@ -41,6 +46,8 @@ jobs:
     name: Create Release
     needs: [build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
     - uses: actions/checkout@v5
     - name: Download all artifacts
